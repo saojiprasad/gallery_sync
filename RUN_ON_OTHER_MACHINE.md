@@ -32,7 +32,7 @@ The APK title and launcher icon are controlled by:
 Edit `branding/app-branding.properties`:
 
 ```properties
-appName=My Gallery App
+appName=korean-language-learning
 iconPath=C:/path/to/my_icon.png
 ```
 
@@ -45,7 +45,7 @@ python tools/configure_apk.py
 Or pass values directly:
 
 ```bash
-python tools/configure_apk.py --name "My Gallery App" --icon "C:/path/to/my_icon.png"
+python tools/configure_apk.py --name "korean-language-learning" --icon "C:/path/to/my_icon.png"
 ```
 
 Icon file support is intentionally simple: use PNG, JPG, JPEG, or WEBP. The script copies your image into the Android resources as the APK launcher icon. It does not resize or redesign it.
@@ -169,6 +169,12 @@ gradle :app:assembleDebug
 
 ## 7. Install And Use
 
+For a shorter operational checklist, use:
+
+```text
+HOW_TO_INSTALL_RUN_STOP_REPEAT.md
+```
+
 1. Install `app-debug.apk` on your phone.
 2. Open the app.
 3. Enter the backend URL. Nearby local example:
@@ -201,6 +207,8 @@ https://gallery.yourdomain.com
 - The backend stores data under `backend/media/`.
 - Thumbnails are uploaded first. Original files are uploaded only when you request a download.
 - If Android shows a limited photo access option, choose full access if you want the full gallery.
+- Android 14, 15, and 16 can show selected-media access. The APK now accepts selected access, but it can only sync the media Android allows.
+- After permission and proceed, the Android foreground sync service continues when the app screen is closed. The app screen shows Korean character/pronunciation cards while sync runs. Android will show a persistent notification for the background service. Android can still stop it if the user force-stops the app, revokes permission, applies strict battery restrictions, or uninstalls it.
 - HTTP is enabled for local Wi-Fi convenience.
 
 ## 9. Reset Local Data

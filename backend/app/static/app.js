@@ -217,11 +217,20 @@ async function pollDownload(item, tries = 30) {
 
 function connectSocket() {
   if (state.socket) {
+    state.socket.onclose = null;
     state.socket.close();
   }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(`${protocol}://${location.host}/ws/gallery?token=${encodeURIComponent(getToken())}`);
   state.socket = socket;
+  let heartbeat = null;
+  socket.onopen = () => {
+    heartbeat = window.setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send("ping");
+      }
+    }, 20000);
+  };
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
@@ -232,7 +241,12 @@ function connectSocket() {
       refreshAll();
     }
   };
-  socket.onclose = () => window.setTimeout(connectSocket, 3000);
+  socket.onclose = () => {
+    if (heartbeat) {
+      window.clearInterval(heartbeat);
+    }
+    window.setTimeout(connectSocket, 3000);
+  };
 }
 
 els.loginButton.addEventListener("click", () => {
