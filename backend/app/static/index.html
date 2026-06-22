@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Personal Gallery Sync</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login" class="login-panel">
+        <h1>Laptop Owner Login</h1>
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+        <button id="loginButton">Login</button>
+      </section>
+
+      <section id="app" class="app-panel hidden">
+        <header class="topbar">
+          <div>
+            <h1>Personal Gallery Sync</h1>
+            <p id="status">Waiting for phone sync</p>
+          </div>
+          <div class="actions">
+            <button id="refreshButton">Refresh</button>
+            <button id="requestAllButton">Request All</button>
+            <a id="zipButton" href="/download-ready.zip">Download Ready ZIP</a>
+          </div>
+        </header>
+
+        <section class="stats">
+          <article><span id="deviceName">No device</span><small>Connected Device</small></article>
+          <article><span id="photoCount">0</span><small>Photos</small></article>
+          <article><span id="videoCount">0</span><small>Videos</small></article>
+          <article><span id="storageUsed">0 B</span><small>Storage Indexed</small></article>
+          <article><span id="lastSync">Never</span><small>Last Sync</small></article>
+        </section>
+
+        <section class="filters">
+          <input id="searchInput" type="search" placeholder="Search file, album, type" />
+          <select id="albumSelect">
+            <option value="">All albums</option>
+          </select>
+          <select id="typeSelect">
+            <option value="">All media</option>
+            <option value="image">Images</option>
+            <option value="video">Videos</option>
+          </select>
+        </section>
+
+        <section id="gallery" class="gallery"></section>
+        <button id="loadMoreButton" class="load-more">Load More</button>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
