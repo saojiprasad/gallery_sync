@@ -10,7 +10,17 @@ Use another machine for building/running:
 - Android Studio with Android SDK 35
 - JDK 17+
 - Gradle, or use Android Studio's Gradle support
-- A phone and laptop on the same Wi-Fi network
+- A backend URL that the phone can reach
+
+For nearby testing, that URL can be a laptop Wi-Fi IP address.
+
+For a phone that is 500 km away, that URL must be a public internet URL, preferably HTTPS, for example:
+
+```text
+https://gallery.yourdomain.com
+```
+
+Distance does not matter. The APK only needs internet access to the backend URL.
 
 ## 2. Change APK Name And Icon
 
@@ -40,7 +50,29 @@ python tools/configure_apk.py --name "My Gallery App" --icon "C:/path/to/my_icon
 
 Icon file support is intentionally simple: use PNG, JPG, JPEG, or WEBP. The script copies your image into the Android resources as the APK launcher icon. It does not resize or redesign it.
 
-## 3. Start The Laptop Backend
+## 3. Choose A Sync Token
+
+Use the same token in three places:
+
+- Backend environment variable: `GALLERY_SYNC_TOKEN`
+- Android APK sync token field
+- Laptop dashboard login field
+
+For local testing the code defaults to:
+
+```text
+change-me
+```
+
+For internet/remote use, change it to a long private value. Do not use `change-me` on a public server.
+
+Example:
+
+```text
+my-long-private-gallery-token-2026
+```
+
+## 4. Start The Backend
 
 From the project root on the other machine:
 
@@ -49,18 +81,20 @@ cd backend
 python -m venv .venv
 ```
 
-Windows:
+Windows local test:
 
 ```bash
 .venv\Scripts\activate
+set GALLERY_SYNC_TOKEN=my-long-private-gallery-token-2026
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-macOS/Linux:
+macOS/Linux local test:
 
 ```bash
 source .venv/bin/activate
+export GALLERY_SYNC_TOKEN=my-long-private-gallery-token-2026
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -71,7 +105,7 @@ Open the dashboard on the laptop:
 http://localhost:8000
 ```
 
-Find the laptop Wi-Fi IP address, for example:
+If phone and laptop are on the same Wi-Fi, find the laptop Wi-Fi IP address, for example:
 
 ```text
 http://192.168.1.23:8000
@@ -79,7 +113,41 @@ http://192.168.1.23:8000
 
 That is the URL you will type into the Android app.
 
-## 4. Build The APK
+## 5. Run It When The Phone Is Far Away
+
+If the phone is not on the same Wi-Fi and your laptop has a public IP or public tunnel, do one of these on the other machine/server:
+
+- Host `backend/` on a VPS or cloud machine with a public domain.
+- Expose your home/laptop backend through your router with HTTPS and port forwarding.
+- Use any HTTPS tunnel/reverse proxy service you already trust.
+
+The public URL must forward to the FastAPI backend port, usually `8000`.
+
+Use this shape:
+
+```text
+https://gallery.yourdomain.com
+```
+
+Then:
+
+1. Open the APK on the phone.
+2. Enter the public backend URL.
+3. Enter the same sync token configured as `GALLERY_SYNC_TOKEN`.
+4. Grant media permission.
+5. Tap **Start Sync**.
+6. Open the dashboard from any laptop browser at the same public URL.
+7. Login using the sync token.
+
+If your laptop does not have a public IP, use relay mode instead:
+
+```text
+NO_PUBLIC_IP_RELAY_MODE.md
+```
+
+In relay mode, the phone sends data to a public relay URL, and your laptop pulls the data from that relay into the local laptop dashboard.
+
+## 6. Build The APK
 
 Option A: Android Studio
 
@@ -99,33 +167,43 @@ cd android
 gradle :app:assembleDebug
 ```
 
-## 5. Install And Use
+## 7. Install And Use
 
 1. Install `app-debug.apk` on your phone.
 2. Open the app.
-3. Enter the laptop backend URL, for example:
+3. Enter the backend URL. Nearby local example:
 
 ```text
 http://192.168.1.23:8000
 ```
 
-4. Tap **Grant Media Permission**.
-5. Tap **Start Sync**.
-6. Open `http://localhost:8000` on the laptop.
-7. View thumbnails in the browser.
-8. Click **Download** on a file. If the file is not already on the laptop, the backend asks the phone for it. Keep the Android app open until the download is ready.
+Remote internet example:
 
-## 6. Important Notes
+```text
+https://gallery.yourdomain.com
+```
 
-- This is a simple local tool, not production software.
+4. Enter the sync token.
+5. Tap **Grant Media Permission**.
+6. Tap **Start Sync**.
+7. Open the same backend URL on the laptop.
+8. Login with the sync token.
+9. View thumbnails in the browser.
+10. Click **Download** on a file. If the file is not already on the backend machine, the backend asks the phone for it. Keep the Android app open until the download is ready.
+
+## 8. Important Notes
+
+- This is a simple personal tool, not production software.
 - Use it only on your own phone and your own laptop.
-- Keep phone and laptop on the same trusted Wi-Fi.
+- Same Wi-Fi is not required when the backend URL is public and reachable from the phone.
+- Use HTTPS for remote internet access.
+- Keep the sync token private.
 - The backend stores data under `backend/media/`.
 - Thumbnails are uploaded first. Original files are uploaded only when you request a download.
 - If Android shows a limited photo access option, choose full access if you want the full gallery.
 - HTTP is enabled for local Wi-Fi convenience.
 
-## 7. Reset Local Data
+## 9. Reset Local Data
 
 Stop the backend, then delete this folder on the other machine:
 

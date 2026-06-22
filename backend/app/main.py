@@ -1,11 +1,13 @@
 import json
+import os
+import secrets
 import shutil
 import time
 import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -19,6 +21,7 @@ UPLOADS_DIR = MEDIA_DIR / "uploads"
 DOWNLOADS_DIR = MEDIA_DIR / "downloads"
 METADATA_FILE = MEDIA_DIR / "metadata.json"
 REQUESTS_FILE = MEDIA_DIR / "download_requests.json"
+SYNC_TOKEN = os.environ.get("GALLERY_SYNC_TOKEN", "change-me")
 
 for folder in (MEDIA_DIR, THUMBNAILS_DIR, UPLOADS_DIR, DOWNLOADS_DIR):
     folder.mkdir(parents=True, exist_ok=True)
@@ -26,7 +29,6 @@ for folder in (MEDIA_DIR, THUMBNAILS_DIR, UPLOADS_DIR, DOWNLOADS_DIR):
 
 app = FastAPI(title="Personal Gallery Sync")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/files", StaticFiles(directory=MEDIA_DIR), name="files")
 
 
 class DeviceRegistration(BaseModel):
@@ -103,6 +105,16 @@ def write_json(path: Path, value: Any) -> None:
     temp_path.replace(path)
 
 
+def is_valid_token(token: str | None) -> bool:
+    return bool(token) and secrets.compare_digest(token, SYNC_TOKEN)
+
+
+def require_token(request: Request) -> None:
+    token = request.headers.get("X-Gallery-Sync-Token") or request.query_params.get("token")
+    if not is_valid_token(token):
+        raise HTTPException(status_code=401, detail="Invalid or missing sync token")
+
+
 def load_store() -> dict[str, Any]:
     return read_json(METADATA_FILE, {"devices": {}, "media": {}, "last_sync": None})
 
@@ -136,7 +148,7 @@ def add_urls(item: dict[str, Any]) -> dict[str, Any]:
     media_id = item["id"]
     thumb = THUMBNAILS_DIR / f"{safe_id(media_id)}.jpg"
     upload = UPLOADS_DIR / safe_id(media_id)
-    item["thumbnailUrl"] = f"/files/thumbnails/{thumb.name}" if thumb.exists() else None
+    item["thumbnailUrl"] = f"/thumbnail/{thumb.name}" if thumb.exists() else None
     item["downloadReady"] = upload.exists()
     return item
 
@@ -168,8 +180,40 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/health")
+def health() -> dict[str, Any]:
+    return {"ok": True, "auth": "token", "remoteReady": True}
+
+
+@app.get("/relay/export")
+def relay_export(request: Request) -> dict[str, Any]:
+    require_token(request)
+    store = load_store()
+    media = {
+        media_id: add_urls(item)
+        for media_id, item in store.get("media", {}).items()
+    }
+    return {
+        "devices": store.get("devices", {}),
+        "media": media,
+        "last_sync": store.get("last_sync"),
+        "generated_at": int(time.time()),
+    }
+
+
+@app.get("/thumbnail/{filename}")
+def thumbnail(filename: str, request: Request) -> FileResponse:
+    require_token(request)
+    safe_name = Path(filename).name
+    path = THUMBNAILS_DIR / safe_name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
 @app.post("/register-device")
-async def register_device(registration: DeviceRegistration) -> dict[str, Any]:
+async def register_device(registration: DeviceRegistration, request: Request) -> dict[str, Any]:
+    require_token(request)
     store = load_store()
     store.setdefault("devices", {})[registration.device_id] = {
         "device_id": registration.device_id,
@@ -184,7 +228,8 @@ async def register_device(registration: DeviceRegistration) -> dict[str, Any]:
 
 
 @app.post("/sync-metadata")
-async def sync_metadata(payload: SyncPayload) -> dict[str, Any]:
+async def sync_metadata(payload: SyncPayload, request: Request) -> dict[str, Any]:
+    require_token(request)
     store = load_store()
     now = int(time.time())
     store.setdefault("devices", {}).setdefault(payload.device_id, {"device_id": payload.device_id})
@@ -221,10 +266,12 @@ async def sync_metadata(payload: SyncPayload) -> dict[str, Any]:
 
 @app.post("/upload-thumbnail")
 async def upload_thumbnail(
+    request: Request,
     device_id: str = Form(...),
     media_id: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
+    require_token(request)
     destination = THUMBNAILS_DIR / f"{safe_id(media_id)}.jpg"
     with destination.open("wb") as output:
         shutil.copyfileobj(file.file, output)
@@ -236,17 +283,19 @@ async def upload_thumbnail(
         save_store(store)
 
     await hub.broadcast("MEDIA_UPDATED", {"device_id": device_id, "media_id": media_id})
-    return {"ok": True, "thumbnailUrl": f"/files/thumbnails/{destination.name}"}
+    return {"ok": True, "thumbnailUrl": f"/thumbnail/{destination.name}"}
 
 
 @app.get("/media")
 def list_media(
+    request: Request,
     q: str = "",
     album: str = "",
     type: str = "",
     limit: int = Query(120, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
+    require_token(request)
     items = active_media_items()
     query = q.strip().lower()
     if query:
@@ -267,7 +316,8 @@ def list_media(
 
 
 @app.get("/media/{media_id}")
-def get_media(media_id: str) -> dict[str, Any]:
+def get_media(media_id: str, request: Request) -> dict[str, Any]:
+    require_token(request)
     store = load_store()
     item = store.get("media", {}).get(media_id)
     if not item or item.get("status") == "removed":
@@ -276,7 +326,8 @@ def get_media(media_id: str) -> dict[str, Any]:
 
 
 @app.get("/albums")
-def albums() -> dict[str, Any]:
+def albums(request: Request) -> dict[str, Any]:
+    require_token(request)
     counts: dict[str, int] = {}
     for item in active_media_items():
         album = item.get("album") or "Unknown"
@@ -285,12 +336,13 @@ def albums() -> dict[str, Any]:
 
 
 @app.get("/search")
-def search(q: str = "", album: str = "", type: str = "") -> dict[str, Any]:
-    return list_media(q=q, album=album, type=type, limit=120, offset=0)
+def search(request: Request, q: str = "", album: str = "", type: str = "") -> dict[str, Any]:
+    return list_media(request=request, q=q, album=album, type=type, limit=120, offset=0)
 
 
 @app.get("/stats")
-def stats() -> dict[str, Any]:
+def stats(request: Request) -> dict[str, Any]:
+    require_token(request)
     store = load_store()
     items = active_media_items()
     total_size = sum(int(item.get("size") or 0) for item in items)
@@ -305,14 +357,16 @@ def stats() -> dict[str, Any]:
 
 
 @app.post("/request-download/{media_id}")
-async def request_download(media_id: str) -> dict[str, Any]:
-    request = queue_download(media_id)
+async def request_download(media_id: str, request: Request) -> dict[str, Any]:
+    require_token(request)
+    download_request = queue_download(media_id)
     await hub.broadcast("DOWNLOAD_REQUESTED", {"media_id": media_id})
-    return {"ok": True, "request": request}
+    return {"ok": True, "request": download_request}
 
 
 @app.get("/download/{media_id}")
-async def download(media_id: str):
+async def download(media_id: str, request: Request):
+    require_token(request)
     store = load_store()
     item = store.get("media", {}).get(media_id)
     if not item or item.get("status") == "removed":
@@ -332,7 +386,8 @@ async def download(media_id: str):
 
 
 @app.post("/download-all/request")
-async def request_all_downloads() -> dict[str, Any]:
+async def request_all_downloads(request: Request) -> dict[str, Any]:
+    require_token(request)
     count = 0
     for item in active_media_items():
         if not upload_path_for(item["id"]).exists():
@@ -343,7 +398,8 @@ async def request_all_downloads() -> dict[str, Any]:
 
 
 @app.get("/download-ready.zip")
-def download_ready_zip() -> FileResponse:
+def download_ready_zip(request: Request) -> FileResponse:
+    require_token(request)
     archive = DOWNLOADS_DIR / "ready-gallery.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
         for item in active_media_items():
@@ -355,7 +411,8 @@ def download_ready_zip() -> FileResponse:
 
 
 @app.get("/download-requests")
-def download_requests(device_id: str = "") -> dict[str, Any]:
+def download_requests(request: Request, device_id: str = "") -> dict[str, Any]:
+    require_token(request)
     requests = load_requests()
     pending = []
     for request in requests.get("requests", {}).values():
@@ -369,10 +426,12 @@ def download_requests(device_id: str = "") -> dict[str, Any]:
 
 @app.post("/upload-original")
 async def upload_original(
+    request: Request,
     device_id: str = Form(...),
     media_id: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
+    require_token(request)
     destination = upload_path_for(media_id)
     with destination.open("wb") as output:
         shutil.copyfileobj(file.file, output)
@@ -394,6 +453,9 @@ async def upload_original(
 
 @app.websocket("/ws/gallery")
 async def gallery_socket(websocket: WebSocket) -> None:
+    if not is_valid_token(websocket.query_params.get("token")):
+        await websocket.close(code=1008)
+        return
     await hub.connect(websocket)
     try:
         await websocket.send_json({"event": "CONNECTED", "payload": {}, "time": int(time.time())})

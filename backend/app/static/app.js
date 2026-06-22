@@ -3,6 +3,7 @@ const state = {
   offset: 0,
   loading: false,
   total: 0,
+  socket: null,
 };
 
 const els = {
@@ -31,6 +32,33 @@ function showToast(message) {
   els.toast.classList.remove("hidden");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => els.toast.classList.add("hidden"), 3200);
+}
+
+function getToken() {
+  return sessionStorage.getItem("gallery-sync-token") || "";
+}
+
+function authUrl(path) {
+  const url = new URL(path, location.origin);
+  url.searchParams.set("token", getToken());
+  return `${url.pathname}${url.search}`;
+}
+
+function setZipLink() {
+  document.getElementById("zipButton").href = authUrl("/download-ready.zip");
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("X-Gallery-Sync-Token", getToken());
+  const response = await fetch(authUrl(path), { ...options, headers });
+  if (response.status === 401) {
+    sessionStorage.removeItem("gallery-sync-token");
+    showToast("Sync token rejected.");
+    els.app.classList.add("hidden");
+    els.login.classList.remove("hidden");
+  }
+  return response;
 }
 
 function formatBytes(bytes) {
@@ -63,7 +91,7 @@ function downloadBlob(blob, filename) {
 }
 
 async function refreshStats() {
-  const stats = await fetch("/stats").then((res) => res.json());
+  const stats = await apiFetch("/stats").then((res) => res.json());
   const device = stats.devices?.[stats.devices.length - 1];
   els.deviceName.textContent = device?.device_name || "No device";
   els.photoCount.textContent = stats.photos || 0;
@@ -75,7 +103,7 @@ async function refreshStats() {
 
 async function refreshAlbums() {
   const current = els.albumSelect.value;
-  const data = await fetch("/albums").then((res) => res.json());
+  const data = await apiFetch("/albums").then((res) => res.json());
   els.albumSelect.innerHTML = '<option value="">All albums</option>';
   for (const album of data.albums || []) {
     const option = document.createElement("option");
@@ -94,7 +122,7 @@ function mediaCard(item) {
   thumb.className = "thumb";
   if (item.thumbnailUrl) {
     const image = document.createElement("img");
-    image.src = item.thumbnailUrl;
+    image.src = authUrl(item.thumbnailUrl);
     image.alt = item.name;
     thumb.appendChild(image);
   } else {
@@ -138,7 +166,7 @@ async function loadMedia(reset = false) {
   if (els.albumSelect.value) params.set("album", els.albumSelect.value);
   if (els.typeSelect.value) params.set("type", els.typeSelect.value);
 
-  const data = await fetch(`/media?${params}`).then((res) => res.json());
+  const data = await apiFetch(`/media?${params}`).then((res) => res.json());
   state.total = data.total || 0;
   for (const item of data.items || []) {
     els.gallery.appendChild(mediaCard(item));
@@ -149,13 +177,14 @@ async function loadMedia(reset = false) {
 }
 
 async function refreshAll() {
+  setZipLink();
   await refreshStats();
   await refreshAlbums();
   await loadMedia(true);
 }
 
 async function downloadMedia(item) {
-  const response = await fetch(`/download/${encodeURIComponent(item.id)}`);
+  const response = await apiFetch(`/download/${encodeURIComponent(item.id)}`);
   if (response.status === 202) {
     showToast("Phone upload requested. Keep the Android app open.");
     pollDownload(item);
@@ -174,7 +203,7 @@ async function pollDownload(item, tries = 30) {
     return;
   }
   await new Promise((resolve) => setTimeout(resolve, 3000));
-  const response = await fetch(`/download/${encodeURIComponent(item.id)}`);
+  const response = await apiFetch(`/download/${encodeURIComponent(item.id)}`);
   if (response.status === 202) {
     pollDownload(item, tries - 1);
     return;
@@ -187,8 +216,12 @@ async function pollDownload(item, tries = 30) {
 }
 
 function connectSocket() {
+  if (state.socket) {
+    state.socket.close();
+  }
   const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${location.host}/ws/gallery`);
+  const socket = new WebSocket(`${protocol}://${location.host}/ws/gallery?token=${encodeURIComponent(getToken())}`);
+  state.socket = socket;
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
@@ -203,11 +236,12 @@ function connectSocket() {
 }
 
 els.loginButton.addEventListener("click", () => {
-  if (els.password.value !== "local") {
-    showToast('Password is "local" for this simple build.');
+  const token = els.password.value.trim();
+  if (!token) {
+    showToast("Enter the sync token from the backend setup.");
     return;
   }
-  sessionStorage.setItem("gallery-sync-login", "yes");
+  sessionStorage.setItem("gallery-sync-token", token);
   els.login.classList.add("hidden");
   els.app.classList.remove("hidden");
   refreshAll();
@@ -220,11 +254,11 @@ els.searchInput.addEventListener("input", () => loadMedia(true));
 els.albumSelect.addEventListener("change", () => loadMedia(true));
 els.typeSelect.addEventListener("change", () => loadMedia(true));
 els.requestAllButton.addEventListener("click", async () => {
-  const data = await fetch("/download-all/request", { method: "POST" }).then((res) => res.json());
+  const data = await apiFetch("/download-all/request", { method: "POST" }).then((res) => res.json());
   showToast(`${data.queued || 0} files queued. Keep the Android app open.`);
 });
 
-if (sessionStorage.getItem("gallery-sync-login") === "yes") {
+if (getToken()) {
   els.login.classList.add("hidden");
   els.app.classList.remove("hidden");
   refreshAll();

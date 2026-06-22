@@ -1,6 +1,6 @@
 # Personal Gallery Sync
 
-Simple local phone-to-laptop gallery viewer.
+Simple phone-to-laptop gallery viewer. It can run locally on the same Wi-Fi or remotely over the internet when the backend has a public HTTPS URL.
 
 This source tree contains:
 
@@ -8,6 +8,10 @@ This source tree contains:
 - `backend/` - FastAPI backend plus browser dashboard
 - `branding/` - editable APK name/icon settings
 - `tools/configure_apk.py` - applies APK name/icon settings
+- `tools/laptop_relay_sync.py` - pulls remote relay data into the laptop
 - `RUN_ON_OTHER_MACHINE.md` - setup and run guide
+- `NO_PUBLIC_IP_RELAY_MODE.md` - setup when the laptop has no public IP
 
 No dependency installation was performed while creating these files. Build and run it on the other machine using `RUN_ON_OTHER_MACHINE.md`.
+
+For remote use, set `GALLERY_SYNC_TOKEN` on the backend and enter the same token in the Android app and dashboard login.

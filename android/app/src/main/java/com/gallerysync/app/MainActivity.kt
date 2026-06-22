@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     }
 
     private lateinit var backendInput: EditText
+    private lateinit var tokenInput: EditText
     private lateinit var statusText: TextView
     private lateinit var logText: TextView
     @Volatile
@@ -85,16 +86,23 @@ class MainActivity : Activity() {
         }
 
         val subtitle = TextView(this).apply {
-            text = "Access your phone gallery from your laptop."
+            text = "Sync your gallery to a local backend or public relay URL."
             textSize = 15f
             setTextColor(0xFF5A6578.toInt())
             setPadding(0, dp(8), 0, dp(18))
         }
 
         backendInput = EditText(this).apply {
-            hint = "http://192.168.1.23:8000"
-            setText(prefs.getString("backend_url", "http://192.168.1.23:8000"))
+            hint = "https://gallery.example.com"
+            setText(prefs.getString("backend_url", "https://gallery.example.com"))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+        }
+
+        tokenInput = EditText(this).apply {
+            hint = "Sync token"
+            setText(prefs.getString("sync_token", "change-me"))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine(true)
         }
 
@@ -110,7 +118,10 @@ class MainActivity : Activity() {
 
         val onceButton = Button(this).apply {
             text = "Sync Now"
-            setOnClickListener { runInBackground { syncOnce() } }
+            setOnClickListener {
+                saveBackendSettings()
+                runInBackground { syncOnce() }
+            }
         }
 
         val stopButton = Button(this).apply {
@@ -135,6 +146,7 @@ class MainActivity : Activity() {
         container.addView(title)
         container.addView(subtitle)
         container.addView(backendInput)
+        container.addView(tokenInput)
         container.addView(permissionButton, buttonParams())
         container.addView(startButton, buttonParams())
         container.addView(onceButton, buttonParams())
@@ -199,7 +211,7 @@ class MainActivity : Activity() {
             updateStatus("Sync is already running")
             return
         }
-        saveBackendUrl()
+        saveBackendSettings()
         running = true
         syncThread = Thread {
             log("Sync loop started")
@@ -238,12 +250,19 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun saveBackendUrl() {
-        prefs.edit().putString("backend_url", backendUrl()).apply()
+    private fun saveBackendSettings() {
+        prefs.edit()
+            .putString("backend_url", backendInput.text.toString().trim().trimEnd('/'))
+            .putString("sync_token", tokenInput.text.toString().trim())
+            .apply()
     }
 
     private fun backendUrl(): String {
-        return backendInput.text.toString().trim().trimEnd('/')
+        return prefs.getString("backend_url", "")?.trim()?.trimEnd('/') ?: ""
+    }
+
+    private fun syncToken(): String {
+        return prefs.getString("sync_token", "")?.trim() ?: ""
     }
 
     private fun syncOnce() {
@@ -251,9 +270,12 @@ class MainActivity : Activity() {
             updateStatus("Media permission needed")
             return
         }
-        saveBackendUrl()
         if (backendUrl().isBlank()) {
             updateStatus("Enter laptop backend URL")
+            return
+        }
+        if (syncToken().isBlank()) {
+            updateStatus("Enter sync token")
             return
         }
 
@@ -561,6 +583,7 @@ class MainActivity : Activity() {
         return (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
+            setRequestProperty("X-Gallery-Sync-Token", syncToken())
         }
     }
 
