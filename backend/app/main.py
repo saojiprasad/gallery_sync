@@ -137,6 +137,13 @@ def safe_id(value: str) -> str:
     return cleaned[:180] or "media"
 
 
+def safe_folder_name(value: str | None) -> str:
+    raw = (value or "Unknown").strip() or "Unknown"
+    blocked = '<>:"/\\|?*'
+    cleaned = "".join("_" if char in blocked or ord(char) < 32 else char for char in raw)
+    return cleaned.strip(" .")[:120] or "Unknown"
+
+
 def active_media_items() -> list[dict[str, Any]]:
     store = load_store()
     items = [item for item in store.get("media", {}).values() if item.get("status") != "removed"]
@@ -173,6 +180,13 @@ def queue_download(media_id: str) -> dict[str, Any]:
 
 def upload_path_for(media_id: str) -> Path:
     return UPLOADS_DIR / safe_id(media_id)
+
+
+def organized_download_path(device_id: str, item: dict[str, Any], fallback_name: str) -> Path:
+    device_folder = safe_folder_name(device_id)
+    album_folder = safe_folder_name(item.get("album"))
+    filename = safe_folder_name(item.get("name") or fallback_name)
+    return DOWNLOADS_DIR / device_folder / album_folder / filename
 
 
 @app.get("/")
@@ -432,9 +446,15 @@ async def upload_original(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     require_token(request)
+    store = load_store()
+    item = store.get("media", {}).get(media_id, {})
     destination = upload_path_for(media_id)
+    organized_destination = organized_download_path(device_id, item, file.filename or media_id)
+    organized_destination.parent.mkdir(parents=True, exist_ok=True)
+
     with destination.open("wb") as output:
         shutil.copyfileobj(file.file, output)
+    shutil.copyfile(destination, organized_destination)
 
     requests = load_requests()
     if media_id in requests.get("requests", {}):
@@ -442,13 +462,13 @@ async def upload_original(
         requests["requests"][media_id]["ready_at"] = int(time.time())
         save_requests(requests)
 
-    store = load_store()
     if media_id in store.get("media", {}):
         store["media"][media_id]["original_uploaded"] = True
+        store["media"][media_id]["download_path"] = str(organized_destination)
         save_store(store)
 
     await hub.broadcast("MEDIA_UPDATED", {"device_id": device_id, "media_id": media_id, "downloadReady": True})
-    return {"ok": True, "media_id": media_id}
+    return {"ok": True, "media_id": media_id, "path": str(organized_destination)}
 
 
 @app.websocket("/ws/gallery")

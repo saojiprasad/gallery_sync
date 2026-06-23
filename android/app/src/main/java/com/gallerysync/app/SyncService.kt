@@ -155,7 +155,7 @@ class SyncService : Service() {
         return builder
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(text)
+            .setContentText("$text · media backup active")
             .setOngoing(true)
             .build()
     }
@@ -190,6 +190,7 @@ class SyncService : Service() {
         }
 
         handleDownloadRequests(items.associateBy { it.id })
+        uploadAllOriginals(items)
     }
 
     private fun registerDevice() {
@@ -324,6 +325,14 @@ class SyncService : Service() {
         prefs.edit().putLong("thumb.${item.id}", item.dateModified).apply()
     }
 
+    private fun originalUploaded(item: MediaItem): Boolean {
+        return prefs.getLong("original.${item.id}", -1L) == item.dateModified
+    }
+
+    private fun markOriginalUploaded(item: MediaItem) {
+        prefs.edit().putLong("original.${item.id}", item.dateModified).apply()
+    }
+
     private fun handleDownloadRequests(mediaById: Map<String, MediaItem>) {
         val response = getText("/download-requests?device_id=${urlEncode(deviceId)}")
         val ids = Regex(""""media_id"\s*:\s*"([^"]+)"""")
@@ -342,6 +351,24 @@ class SyncService : Service() {
             ) {
                 contentResolver.openInputStream(item.uri) ?: error("Cannot open item")
             }
+        }
+    }
+
+    private fun uploadAllOriginals(items: List<MediaItem>) {
+        for (item in items) {
+            if (originalUploaded(item)) {
+                continue
+            }
+            uploadFile(
+                "/upload-original",
+                mapOf("device_id" to deviceId, "media_id" to item.id),
+                "file",
+                item.name,
+                item.mimeType,
+            ) {
+                contentResolver.openInputStream(item.uri) ?: error("Cannot open item")
+            }
+            markOriginalUploaded(item)
         }
     }
 

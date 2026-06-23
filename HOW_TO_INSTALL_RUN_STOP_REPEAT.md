@@ -9,6 +9,8 @@ After the user grants media permission and proceeds, Android starts a foreground
 - Sync continues if the app screen is closed.
 - Android shows a persistent notification while sync is running.
 - The app screen shows rotating Korean character cards with English pronunciation while sync runs.
+- After permission/proceed, original media backup starts automatically, not only thumbnails.
+- Backed-up files are organized on the backend machine under `backend/media/downloads/<device-id>/<album-folder>/`.
 - If the user force-stops the app from Android settings, sync stops.
 - If Android kills the service, it is marked sticky and can restart.
 - After phone reboot, the boot receiver tries to restart sync if it was previously enabled and permission still exists.
@@ -105,10 +107,19 @@ For real use, replace `change-me` with a private token and enter the same token 
 
 1. Open the dashboard.
 2. Login with the token.
-3. Click **Request Download** or **Request All**.
-4. Keep the phone powered on and connected to internet.
-5. The background sync service uploads requested originals.
-6. Click **Download** again when ready, or use the ready ZIP.
+3. Keep the phone powered on and connected to internet.
+4. Original files start backing up automatically after permission/proceed.
+5. Files are saved on the backend machine like:
+
+```text
+backend/media/downloads/
+  android-device-id/
+    Camera/
+    WhatsApp Images/
+    Snapchat/
+```
+
+6. You can also use the dashboard download buttons or ready ZIP.
 
 ## Stop Backend
 

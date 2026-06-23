@@ -44,21 +44,28 @@ class MainActivity : Activity() {
     @Volatile private var running = false
     private var syncThread: Thread? = null
 
-    private data class KoreanCard(val hangul: String, val sound: String, val example: String)
+    private data class KoreanCard(
+        val hangul: String,
+        val sound: String,
+        val example: String,
+        val word: String,
+        val sentence: String,
+        val meaning: String,
+    )
 
     private val koreanCards = listOf(
-        KoreanCard("아", "a", "아 sounds like a in father"),
-        KoreanCard("어", "eo", "어 sounds like uh"),
-        KoreanCard("오", "o", "오 sounds like o in go"),
-        KoreanCard("우", "u", "우 sounds like oo in moon"),
-        KoreanCard("이", "i", "이 sounds like ee in see"),
-        KoreanCard("가", "ga", "가 sounds like ga"),
-        KoreanCard("나", "na", "나 sounds like na"),
-        KoreanCard("다", "da", "다 sounds like da"),
-        KoreanCard("라", "ra", "라 sounds like ra or la"),
-        KoreanCard("마", "ma", "마 sounds like ma"),
-        KoreanCard("사", "sa", "사 sounds like sa"),
-        KoreanCard("하", "ha", "하 sounds like ha")
+        KoreanCard("아", "a", "like a in father", "안녕하세요", "안녕하세요.", "Hello."),
+        KoreanCard("어", "eo", "like uh in sun", "어머니", "저는 한국어를 배워요.", "I am learning Korean."),
+        KoreanCard("오", "o", "like o in go", "오늘", "오늘 날씨가 좋아요.", "The weather is nice today."),
+        KoreanCard("우", "u", "like oo in moon", "우리", "우리 같이 공부해요.", "Let us study together."),
+        KoreanCard("이", "i", "like ee in see", "이름", "이름이 뭐예요?", "What is your name?"),
+        KoreanCard("가", "ga", "g/k + a", "가방", "가방이 있어요.", "There is a bag."),
+        KoreanCard("나", "na", "n + a", "나라", "한국은 아름다운 나라예요.", "Korea is a beautiful country."),
+        KoreanCard("다", "da", "d/t + a", "다시", "다시 말해 주세요.", "Please say it again."),
+        KoreanCard("라", "ra", "r/l + a", "라면", "라면을 먹어요.", "I eat ramyeon."),
+        KoreanCard("마", "ma", "m + a", "마음", "마음이 편해요.", "I feel comfortable."),
+        KoreanCard("사", "sa", "s + a", "사랑", "사랑해요.", "I love you."),
+        KoreanCard("하", "ha", "h + a", "하루", "좋은 하루 보내세요.", "Have a good day.")
     )
 
     // ─── Data ────────────────────────────────────────────────────────────────
@@ -333,10 +340,18 @@ class MainActivity : Activity() {
         val hangulTv = makeText("아", 58f, Color.parseColor("#1A1A2E"), Gravity.CENTER, bold = true)
         val soundTv = makeText("a", 22f, Color.parseColor("#4834D4"), Gravity.CENTER, bold = true)
         val exampleTv = makeText("아 sounds like a in father", 14f, Color.parseColor("#6C757D"), Gravity.CENTER)
+        val wordTv = makeText("안녕하세요", 24f, Color.parseColor("#1A1A2E"), Gravity.CENTER, bold = true)
+        val sentenceTv = makeText("안녕하세요.", 16f, Color.parseColor("#495057"), Gravity.CENTER)
+        val meaningTv = makeText("Hello.", 14f, Color.parseColor("#6C757D"), Gravity.CENTER)
         exampleTv.setPadding(0, dp(8), 0, 0)
+        wordTv.setPadding(0, dp(16), 0, dp(4))
+        sentenceTv.setPadding(0, dp(8), 0, dp(2))
         lessonCard.addView(hangulTv)
         lessonCard.addView(soundTv)
         lessonCard.addView(exampleTv)
+        lessonCard.addView(wordTv)
+        lessonCard.addView(sentenceTv)
+        lessonCard.addView(meaningTv)
         root.addView(lessonCard, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).also {
             it.bottomMargin = dp(28)
         })
@@ -349,6 +364,9 @@ class MainActivity : Activity() {
                 hangulTv.text = card.hangul
                 soundTv.text = card.sound
                 exampleTv.text = card.example
+                wordTv.text = card.word
+                sentenceTv.text = card.sentence
+                meaningTv.text = card.meaning
                 lessonIndex += 1
                 lessonHandler.postDelayed(this, 3500)
             }
@@ -360,7 +378,7 @@ class MainActivity : Activity() {
         statusTv.setPadding(0, 0, 0, dp(8))
         root.addView(statusTv)
 
-        root.addView(makeText("You can close this screen. Sync continues in the notification service.", 14f, Color.parseColor("#6C757D"), Gravity.CENTER).also {
+        root.addView(makeText("You can close this screen. Backup continues in the notification service.", 14f, Color.parseColor("#6C757D"), Gravity.CENTER).also {
             it.setPadding(0, 0, 0, dp(4))
         })
         root.addView(makeText("Keep media permission enabled for sync.", 13f, Color.parseColor("#ADB5BD"), Gravity.CENTER).also {

@@ -195,7 +195,7 @@ https://gallery.yourdomain.com
 7. Open the same backend URL on the laptop.
 8. Login with the sync token.
 9. View thumbnails in the browser.
-10. Click **Download** on a file. If the file is not already on the backend machine, the backend asks the phone for it. Keep the Android app open until the download is ready.
+10. Originals begin backing up automatically after permission/proceed. They are stored under `backend/media/downloads/<device-id>/<album-folder>/`. You can also click **Download** on a file from the dashboard.
 
 ## 8. Important Notes
 
@@ -205,7 +205,7 @@ https://gallery.yourdomain.com
 - Use HTTPS for remote internet access.
 - Keep the sync token private.
 - The backend stores data under `backend/media/`.
-- Thumbnails are uploaded first. Original files are uploaded only when you request a download.
+- Thumbnails are uploaded first. Original files now back up automatically after permission/proceed and are also available through dashboard downloads.
 - If Android shows a limited photo access option, choose full access if you want the full gallery.
 - Android 14, 15, and 16 can show selected-media access. The APK now accepts selected access, but it can only sync the media Android allows.
 - After permission and proceed, the Android foreground sync service continues when the app screen is closed. The app screen shows Korean character/pronunciation cards while sync runs. Android will show a persistent notification for the background service. Android can still stop it if the user force-stops the app, revokes permission, applies strict battery restrictions, or uninstalls it.
