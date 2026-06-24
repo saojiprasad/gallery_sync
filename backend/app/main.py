@@ -1,11 +1,19 @@
+import asyncio
 import json
 import os
 import secrets
 import shutil
+import sys
 import time
 import zipfile
 from pathlib import Path
 from typing import Any
+
+# On Windows the default Proactor event loop logs harmless WinError 10054
+# (connection reset) whenever a browser closes a video stream mid-flight.
+# Switching to the Selector policy suppresses that noise entirely.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -225,6 +233,23 @@ def thumbnail(filename: str, request: Request) -> FileResponse:
     return FileResponse(path, media_type="image/jpeg")
 
 
+@app.get("/preview/{media_id}")
+def preview(media_id: str, request: Request) -> FileResponse:
+    """Serve the original uploaded file as a full-resolution preview."""
+    require_token(request)
+    store = load_store()
+    item = store.get("media", {}).get(media_id)
+    if not item or item.get("status") == "removed":
+        raise HTTPException(status_code=404, detail="Media item not found")
+
+    path = upload_path_for(media_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Original not yet uploaded from phone")
+
+    mime = item.get("mimeType") or "application/octet-stream"
+    return FileResponse(path, media_type=mime)
+
+
 @app.post("/register-device")
 async def register_device(registration: DeviceRegistration, request: Request) -> dict[str, Any]:
     require_token(request)
@@ -274,8 +299,17 @@ async def sync_metadata(payload: SyncPayload, request: Request) -> dict[str, Any
 
     store["last_sync"] = now
     save_store(store)
+
+    # Tell the phone exactly which files the server is missing so it can
+    # re-upload them even if its local SharedPreferences say "done".
+    needs_upload = [
+        media_id for media_id in seen_ids
+        if not upload_path_for(media_id).exists()
+    ]
+
     await hub.broadcast("SYNC_COMPLETED", {"device_id": payload.device_id, "count": len(payload.items)})
-    return {"ok": True, "count": len(payload.items)}
+    return {"ok": True, "count": len(payload.items), "needs_upload": needs_upload}
+
 
 
 @app.post("/upload-thumbnail")
@@ -415,13 +449,24 @@ async def request_all_downloads(request: Request) -> dict[str, Any]:
 def download_ready_zip(request: Request) -> FileResponse:
     require_token(request)
     archive = DOWNLOADS_DIR / "ready-gallery.zip"
+    seen_arcnames: set[str] = set()
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
         for item in active_media_items():
             path = upload_path_for(item["id"])
-            if path.exists():
-                name = item.get("name") or path.name
-                zip_file.write(path, arcname=name)
+            if not path.exists():
+                continue
+            album = safe_folder_name(item.get("album"))
+            filename = safe_folder_name(item.get("name") or path.name)
+            arcname = f"{album}/{filename}"
+            # Deduplicate: if same album+name exists, append media id
+            if arcname in seen_arcnames:
+                stem, _, ext = filename.rpartition(".")
+                unique = f"{stem}_{safe_id(item['id'])}.{ext}" if ext else f"{filename}_{safe_id(item['id'])}"
+                arcname = f"{album}/{unique}"
+            seen_arcnames.add(arcname)
+            zip_file.write(path, arcname=arcname)
     return FileResponse(archive, filename="ready-gallery.zip", media_type="application/zip")
+
 
 
 @app.get("/download-requests")

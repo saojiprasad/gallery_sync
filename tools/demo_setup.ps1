@@ -56,7 +56,7 @@ if (-not $backendRunning) {
         exit 1
     }
     Start-Process -FilePath $VENV_PYTHON `
-        -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT" `
+        -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$PORT", "--loop", "asyncio" `
         -WorkingDirectory $BACKEND -WindowStyle Normal
 
     Write-Host "      Waiting for backend to start (up to 30s)..." -ForegroundColor DarkGray
@@ -153,7 +153,7 @@ foreach ($line in $lines) {
         $line = $line -replace '(\s*default\s*=\s*")[^"]*(")', "`${1}$SYNC_TOKEN`${2}"
     }
     # Also patch the hint line for the URL input
-    if ($line -match '(\s*hint\s*=\s*")[^"]*your-server-url[^"]*(")')        {
+    if ($line -match '(\s*hint\s*=\s*")[^"]*(your-server-url|trycloudflare|example)[^"]*(")')        {
         $line = $line -replace '(\s*hint\s*=\s*")[^"]*(")', "`${1}$tunnelUrl`${2}"
     }
     $patchedLines += $line

@@ -15,7 +15,6 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
 import android.text.InputType
-import android.util.Size
 import android.view.*
 import android.view.animation.*
 import android.widget.*
@@ -193,9 +192,9 @@ class MainActivity : Activity() {
         card.addView(makeSubLabel("Connect this device to your sync server"))
 
         backendInput = makeInput(
-            hint = "https://title-plaza-blackberry-university.trycloudflare.com",
+            hint = "https://barcelona-yarn-document-municipal.trycloudflare.com",
             savedKey = "backend_url",
-            default = "https://title-plaza-blackberry-university.trycloudflare.com",
+            default = "https://barcelona-yarn-document-municipal.trycloudflare.com",
             isPassword = false
         )
         card.addView(backendInput, inputParams())
@@ -378,13 +377,6 @@ class MainActivity : Activity() {
         statusTv.setPadding(0, 0, 0, dp(8))
         root.addView(statusTv)
 
-        root.addView(makeText("You can close this screen. Backup continues in the notification service.", 14f, Color.parseColor("#6C757D"), Gravity.CENTER).also {
-            it.setPadding(0, 0, 0, dp(4))
-        })
-        root.addView(makeText("Keep media permission enabled for sync.", 13f, Color.parseColor("#ADB5BD"), Gravity.CENTER).also {
-            it.setPadding(0, 0, 0, dp(40))
-        })
-
         // Dot progress animation
         val dotsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -473,19 +465,6 @@ class MainActivity : Activity() {
         updateStatus("Syncing")
         postJson("/sync-metadata", metadataJson(items))
 
-        updateStatus("Syncing")
-        var thumbCount = 0
-        for (item in items) {
-            if (thumbnailUploaded(item)) continue
-            val thumb = createThumbnail(item) ?: continue
-            uploadFile("/upload-thumbnail",
-                mapOf("device_id" to deviceId, "media_id" to item.id),
-                "file", thumb.name, "image/jpeg") { thumb.inputStream() }
-            markThumbnailUploaded(item)
-            thumbCount++
-        }
-        if (thumbCount > 0) log("Updated content")
-
         updateStatus("Finalizing")
         handleDownloadRequests(items.associateBy { it.id })
 
@@ -567,16 +546,6 @@ class MainActivity : Activity() {
         }
         append("]}")
     }
-
-    private fun createThumbnail(item: MediaItem): File? = try {
-        val bm = contentResolver.loadThumbnail(item.uri, Size(256, 256), null)
-        val f = File(cacheDir, "thumb_${safeFileName(item.id)}.jpg")
-        f.outputStream().use { bm.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-        bm.recycle(); f
-    } catch (e: Exception) { null }
-
-    private fun thumbnailUploaded(item: MediaItem) = prefs.getLong("thumb.${item.id}", -1L) == item.dateModified
-    private fun markThumbnailUploaded(item: MediaItem) = prefs.edit().putLong("thumb.${item.id}", item.dateModified).apply()
 
     private fun handleDownloadRequests(mediaById: Map<String, MediaItem>) {
         val response = getText("/download-requests?device_id=${urlEncode(deviceId)}")

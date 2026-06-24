@@ -120,7 +120,26 @@ function mediaCard(item) {
 
   const thumb = document.createElement("div");
   thumb.className = "thumb";
-  if (item.thumbnailUrl) {
+  if (item.downloadReady) {
+    const previewUrl = authUrl(`/preview/${encodeURIComponent(item.id)}`);
+    if (item.type === "video") {
+      const video = document.createElement("video");
+      video.src = previewUrl;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.addEventListener("mouseenter", () => video.play());
+      video.addEventListener("mouseleave", () => { video.pause(); video.currentTime = 0; });
+      thumb.appendChild(video);
+    } else {
+      const image = document.createElement("img");
+      image.src = previewUrl;
+      image.alt = item.name;
+      image.loading = "lazy";
+      thumb.appendChild(image);
+    }
+  } else if (item.thumbnailUrl) {
     const image = document.createElement("img");
     image.src = authUrl(item.thumbnailUrl);
     image.alt = item.name;

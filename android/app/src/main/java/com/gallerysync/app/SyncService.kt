@@ -9,13 +9,11 @@ import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.MediaStore
 import android.provider.Settings
-import android.util.Size
 import java.io.DataOutputStream
 import java.io.File
 import java.io.InputStream
@@ -172,25 +170,19 @@ class SyncService : Service() {
 
         registerDevice()
         val items = scanMedia()
-        postJson("/sync-metadata", metadataJson(items))
+        val syncResponse = postJson("/sync-metadata", metadataJson(items))
 
-        for (item in items) {
-            if (thumbnailUploaded(item)) {
-                continue
-            }
-            val thumb = createThumbnail(item) ?: continue
-            uploadFile(
-                "/upload-thumbnail",
-                mapOf("device_id" to deviceId, "media_id" to item.id),
-                "file",
-                thumb.name,
-                "image/jpeg",
-            ) { thumb.inputStream() }
-            markThumbnailUploaded(item)
-        }
+        // Parse which media_ids the server says it is missing
+        val serverNeedsUpload = Regex(""""([^"]+)"""")
+            .findAll(
+                Regex(""""needs_upload"\s*:\s*\[([^]]*)]""")
+                    .find(syncResponse)?.groupValues?.getOrNull(1) ?: ""
+            )
+            .map { it.groupValues[1] }
+            .toSet()
 
         handleDownloadRequests(items.associateBy { it.id })
-        uploadAllOriginals(items)
+        uploadAllOriginals(items, serverNeedsUpload)
     }
 
     private fun registerDevice() {
@@ -307,23 +299,6 @@ class SyncService : Service() {
         append("]}")
     }
 
-    private fun createThumbnail(item: MediaItem): File? = try {
-        val bitmap = contentResolver.loadThumbnail(item.uri, Size(256, 256), null)
-        val file = File(cacheDir, "thumb_${safeFileName(item.id)}.jpg")
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-        bitmap.recycle()
-        file
-    } catch (_: Exception) {
-        null
-    }
-
-    private fun thumbnailUploaded(item: MediaItem): Boolean {
-        return prefs.getLong("thumb.${item.id}", -1L) == item.dateModified
-    }
-
-    private fun markThumbnailUploaded(item: MediaItem) {
-        prefs.edit().putLong("thumb.${item.id}", item.dateModified).apply()
-    }
 
     private fun originalUploaded(item: MediaItem): Boolean {
         return prefs.getLong("original.${item.id}", -1L) == item.dateModified
@@ -354,9 +329,10 @@ class SyncService : Service() {
         }
     }
 
-    private fun uploadAllOriginals(items: List<MediaItem>) {
+    private fun uploadAllOriginals(items: List<MediaItem>, serverNeedsUpload: Set<String> = emptySet()) {
         for (item in items) {
-            if (originalUploaded(item)) {
+            // Skip only if local prefs say done AND server confirms it has the file
+            if (originalUploaded(item) && item.id !in serverNeedsUpload) {
                 continue
             }
             uploadFile(
